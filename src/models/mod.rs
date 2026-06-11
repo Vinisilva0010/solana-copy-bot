@@ -27,3 +27,28 @@ pub struct RawTransactionEvent {
     pub logs: Vec<String>,
     pub has_error: bool,
 }
+
+
+#[derive(Debug, Clone)]
+pub enum Action {
+    Buy {
+        mint: String,
+        amount_sol: f64,
+        tx_origin: String,
+    },
+    Sell {
+        mint: String,
+        amount_tokens: f64,
+        tx_origin: String,
+    },
+    PartialSell {
+        percentage: f64,
+        tx_origin: String,
+    },
+    Transfer {
+        direction: String,
+        amount: f64,
+        tx_origin: String,
+    },
+    Irrelevant, // Transações de criação de token, metadados ou falhas
+}

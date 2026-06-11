@@ -29,13 +29,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ingestion::start_stream(app_config.rpc_url_ws.clone(), tx_ingestion).await;
 
     // Loop temporário representando o Módulo Classifier (Passo 3 futuro)
-    let mut event_count = 0;
+    
+    // Loop de Classificação e Estratégia
     while let Some(event) = rx_classifier.recv().await {
-        if !event.has_error {
-            event_count += 1;
-            // Apenas demonstrativo para provar que a fase 2 funciona sem congelar a tela
-            if event_count % 100 == 0 {
-                info!("100 novas transações válidas capturadas. Última: {}", event.signature);
+        // Ignora transações revertidas na origem antes de gastar CPU
+        if event.has_error {
+            continue;
+        }
+
+        // Passa o evento bruto para o classificador
+        let action = classifier::classify_pump_event(&event);
+
+        match action {
+            models::Action::Buy { tx_origin, .. } => {
+                info!("🟢 INTENÇÃO IDENTIFICADA: BUY -> Tx: {}", tx_origin);
+                // Aqui o evento será enviado para o módulo de Strategy (Fase 4)
+            }
+            models::Action::Sell { tx_origin, .. } => {
+                info!("🔴 INTENÇÃO IDENTIFICADA: SELL -> Tx: {}", tx_origin);
+            }
+            _ => {
+                // Ignora eventos irrelevantes (ex: inicialização de pool)
             }
         }
     }
