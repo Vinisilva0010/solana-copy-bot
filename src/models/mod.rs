@@ -20,3 +20,10 @@ pub struct AppConfig {
     pub network: NetworkConfig,
     pub trading: TradingConfig,
 }
+
+#[derive(Debug, Clone)]
+pub struct RawTransactionEvent {
+    pub signature: String,
+    pub logs: Vec<String>,
+    pub has_error: bool,
+}

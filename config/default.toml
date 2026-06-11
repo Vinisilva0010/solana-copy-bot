@@ -1,0 +1,6 @@
+[network]
+rpc_timeout_ms = 2000
+
+[trading]
+max_slippage_bps = 100
+max_position_sol = 0.5

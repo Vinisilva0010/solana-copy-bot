@@ -20,3 +20,5 @@ config = "0.14"
 # Telemetry
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+futures = "0.3.32"
+solana-rpc-client-api = "~2.0.15"
