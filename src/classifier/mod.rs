@@ -1,6 +1,5 @@
 use crate::models::{Action, RawTransactionEvent};
 
-
 pub fn classify_pump_event(event: &RawTransactionEvent) -> Action {
     if event.has_error {
         return Action::Irrelevant;
@@ -9,8 +8,6 @@ pub fn classify_pump_event(event: &RawTransactionEvent) -> Action {
     let mut is_buy = false;
     let mut is_sell = false;
 
-    // Busca heurística rápida no vetor de logs
-    // Evitamos Regex aqui porque a compilação de regex em loops de HFT destrói o throughput da CPU.
     for log in &event.logs {
         if log.contains("Instruction: Buy") {
             is_buy = true;
@@ -21,21 +18,22 @@ pub fn classify_pump_event(event: &RawTransactionEvent) -> Action {
         }
     }
 
-    // Nota de arquitetura: Os valores abaixo são mockados.
-    // Em produção, ao confirmar is_buy, o bot usaria a `signature` para buscar a transação
-    // completa via RPC (`get_transaction`) ou decodificaria o log base64 da Pump.fun 
-    // para extrair o mint e os amounts reais sem chamadas de rede adicionais.
+    // Mock: Em produção, o signer e o valor serão extraídos da transação decodificada.
+    let mock_target_wallet = "TargetWallet111111111111111111111111111111".to_string();
+
     if is_buy {
         Action::Buy {
             mint: "ExtracaoPendente".to_string(),
-            amount_sol: 0.0,
+            amount_sol: 0.1, // Valor mockado da compra original
             tx_origin: event.signature.clone(),
+            wallet: mock_target_wallet,
         }
     } else if is_sell {
         Action::Sell {
             mint: "ExtracaoPendente".to_string(),
-            amount_tokens: 0.0,
+            amount_tokens: 1000.0,
             tx_origin: event.signature.clone(),
+            wallet: mock_target_wallet,
         }
     } else {
         Action::Irrelevant

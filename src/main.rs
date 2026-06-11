@@ -32,24 +32,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Loop de Classificação e Estratégia
     while let Some(event) = rx_classifier.recv().await {
-        // Ignora transações revertidas na origem antes de gastar CPU
-        if event.has_error {
-            continue;
-        }
+        if event.has_error { continue; }
 
-        // Passa o evento bruto para o classificador
         let action = classifier::classify_pump_event(&event);
 
-        match action {
-            models::Action::Buy { tx_origin, .. } => {
-                info!("🟢 INTENÇÃO IDENTIFICADA: BUY -> Tx: {}", tx_origin);
-                // Aqui o evento será enviado para o módulo de Strategy (Fase 4)
-            }
-            models::Action::Sell { tx_origin, .. } => {
-                info!("🔴 INTENÇÃO IDENTIFICADA: SELL -> Tx: {}", tx_origin);
-            }
-            _ => {
-                // Ignora eventos irrelevantes (ex: inicialização de pool)
+        // Se o classificador identificar uma ação, passa para a estratégia
+        if let Some(paper_trade) = strategy::evaluate_action(&action, &app_config.trading) {
+            match paper_trade.side.as_str() {
+                "BUY" => {
+                    info!("📋 [PAPER TRADE] COMPRA APROVADA | Mint: {} | Valor: {} SOL | Tx Origem: {}", 
+                        paper_trade.mint, paper_trade.execution_amount_sol, paper_trade.original_tx);
+                    
+                    // Futuro: Salvar em DB local ou passar para o Executor (Simulated/Live)
+                }
+                "SELL" => {
+                    info!("📋 [PAPER TRADE] VENDA APROVADA | Mint: {} | Tx Origem: {}", 
+                        paper_trade.mint, paper_trade.original_tx);
+                }
+                _ => {}
             }
         }
     }

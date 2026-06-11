@@ -1,5 +1,6 @@
 use serde::Deserialize;
 
+// --- Configurações ---
 #[derive(Debug, Deserialize, Clone)]
 pub struct NetworkConfig {
     pub rpc_timeout_ms: u64,
@@ -9,6 +10,8 @@ pub struct NetworkConfig {
 pub struct TradingConfig {
     pub max_slippage_bps: u32,
     pub max_position_sol: f64,
+    pub min_position_sol: f64,
+    pub target_wallets: Vec<String>, // Whitelist
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -21,6 +24,7 @@ pub struct AppConfig {
     pub trading: TradingConfig,
 }
 
+// --- Dados do Bot ---
 #[derive(Debug, Clone)]
 pub struct RawTransactionEvent {
     pub signature: String,
@@ -28,27 +32,38 @@ pub struct RawTransactionEvent {
     pub has_error: bool,
 }
 
-
 #[derive(Debug, Clone)]
 pub enum Action {
     Buy {
         mint: String,
         amount_sol: f64,
         tx_origin: String,
+        wallet: String, // Carteira que iniciou a transação
     },
     Sell {
         mint: String,
         amount_tokens: f64,
         tx_origin: String,
+        wallet: String,
     },
     PartialSell {
         percentage: f64,
         tx_origin: String,
+        wallet: String,
     },
     Transfer {
         direction: String,
         amount: f64,
         tx_origin: String,
     },
-    Irrelevant, // Transações de criação de token, metadados ou falhas
+    Irrelevant,
+}
+
+#[derive(Debug, Clone)]
+pub struct PaperTrade {
+    pub original_tx: String,
+    pub mint: String,
+    pub side: String, // "BUY" ou "SELL"
+    pub execution_amount_sol: f64,
+    pub timestamp: u64,
 }
