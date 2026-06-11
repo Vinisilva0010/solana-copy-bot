@@ -1,6 +1,7 @@
 use tokio::sync::mpsc;
-use tracing::{info, Level};
+use tracing::{error, info, Level};
 use tracing_subscriber::FmtSubscriber;
+use reqwest::Client;
 
 pub mod classifier;
 pub mod executor;
@@ -12,42 +13,46 @@ pub mod utils;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Configura o sistema de logs. Em produção, mudaremos para Level::INFO.
-    // Usar INFO no desenvolvimento também evita flood no terminal devido ao alto volume da Pump.fun.
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
-        .finish();
+    let subscriber = FmtSubscriber::builder().with_max_level(Level::INFO).finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
     let app_config = utils::load_config().expect("Falha ao carregar configuração.");
     info!("Executando bot. Modo: {}", app_config.execution_mode);
 
-    // Cria o canal de comunicação (buffer de 10.000 mensagens para evitar backpressure)
+    // Cria cliente HTTP com pool de conexões (alta performance)
+    let http_client = Client::builder()
+        .timeout(std::time::Duration::from_millis(app_config.network.rpc_timeout_ms))
+        .build()?;
+
     let (tx_ingestion, mut rx_classifier) = mpsc::channel::<models::RawTransactionEvent>(10000);
 
-    // Inicializa a task de ingestão
     ingestion::start_stream(app_config.rpc_url_ws.clone(), tx_ingestion).await;
 
-    // Loop temporário representando o Módulo Classifier (Passo 3 futuro)
-    
-    // Loop de Classificação e Estratégia
+    // Chave pública mockada da sua wallet (no Passo 6 puxaremos do keypair real)
+    let bot_pubkey = "SuaWalletPublicaBot111111111111111111111111";
+
     while let Some(event) = rx_classifier.recv().await {
         if event.has_error { continue; }
 
         let action = classifier::classify_pump_event(&event);
 
-        // Se o classificador identificar uma ação, passa para a estratégia
         if let Some(paper_trade) = strategy::evaluate_action(&action, &app_config.trading) {
             match paper_trade.side.as_str() {
                 "BUY" => {
-                    info!("📋 [PAPER TRADE] COMPRA APROVADA | Mint: {} | Valor: {} SOL | Tx Origem: {}", 
-                        paper_trade.mint, paper_trade.execution_amount_sol, paper_trade.original_tx);
+                    info!("📋 [PAPER TRADE] Aprovado. Solicitando payload ao PumpPortal...");
                     
-                    // Futuro: Salvar em DB local ou passar para o Executor (Simulated/Live)
+                    // Chama o executor para criar a transação
+                    match executor::build_transaction(&http_client, &paper_trade, &app_config.trading, bot_pubkey).await {
+                        Ok(_) => {
+                            // Transação está pronta em memória. No próximo passo, simularemos.
+                        }
+                        Err(e) => {
+                            error!("Falha ao construir transação: {}", e);
+                        }
+                    }
                 }
                 "SELL" => {
-                    info!("📋 [PAPER TRADE] VENDA APROVADA | Mint: {} | Tx Origem: {}", 
-                        paper_trade.mint, paper_trade.original_tx);
+                    info!("📋 [PAPER TRADE] VENDA APROVADA | Mint: {}", paper_trade.mint);
                 }
                 _ => {}
             }

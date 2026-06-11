@@ -22,3 +22,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 futures = "0.3.32"
 solana-rpc-client-api = "~2.0.15"
+reqwest = { version = "0.11", features = ["json"] }
+bincode = "1.3"
