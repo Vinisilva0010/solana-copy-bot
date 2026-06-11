@@ -1,0 +1,24 @@
+# Compilação Rust
+/target/
+**/*.rs.bk
+
+# Variáveis de ambiente e Segredos (CRÍTICO)
+.env
+*.keypair.json
+*wallet*.json
+*.pem
+
+# Diretórios de Dados e Logs (Ignora o conteúdo, mantém as pastas)
+/logs/*
+!/logs/.gitkeep
+/storage/db/*
+!/storage/db/.gitkeep
+/storage/exports/*
+!/storage/exports/.gitkeep
+
+# IDEs e Sistema Operacional
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
