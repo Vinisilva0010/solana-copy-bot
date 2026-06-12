@@ -13,19 +13,28 @@ pub mod ingestion;
 pub mod models;
 pub mod strategy;
 pub mod telemetry;
+pub mod telegram;
 pub mod utils;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let subscriber = FmtSubscriber::builder().with_max_level(Level::INFO).finish();
+    let subscriber = tracing_subscriber::FmtSubscriber::builder().with_max_level(tracing::Level::INFO).finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let app_config = utils::load_config().expect("Falha ao carregar configuração.");
-    info!("Executando bot. Modo: {}", app_config.execution_mode);
+    let app_config = utils::load_config().expect("Falha crítica ao carregar configuração.");
+    tracing::info!("Executando bot. Modo: {}", app_config.execution_mode);
 
-    // Inicializa a task de telemetria
-    let (tx_telemetry, rx_telemetry) = mpsc::channel::<models::TradeRecord>(5000);
+    let (tx_telemetry, rx_telemetry) = tokio::sync::mpsc::channel::<models::TradeRecord>(5000);
     telemetry::start_telemetry_worker("storage/db/telemetry.db".to_string(), rx_telemetry).await;
+
+    // Inicializa a interface do Telegram caso o token exista no ambiente
+    if let Some(telegram_token) = app_config.telegram_bot_token.clone() {
+        if !telegram_token.is_empty() {
+            telegram::start_telemetry_service(telegram_token, "storage/db/telemetry.db".to_string()).await;
+        }
+    }
+
+    
 
     let http_client = Client::builder()
         .timeout(std::time::Duration::from_millis(app_config.network.rpc_timeout_ms))
