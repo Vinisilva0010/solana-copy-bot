@@ -18,22 +18,19 @@ pub fn classify_pump_event(event: &RawTransactionEvent) -> Action {
         }
     }
 
-    // Mock: Em produção, o signer e o valor serão extraídos da transação decodificada.
-    let mock_target_wallet = "TargetWallet111111111111111111111111111111".to_string();
-
     if is_buy {
         Action::Buy {
-            mint: "ExtracaoPendente".to_string(),
-            amount_sol: 0.1, // Valor mockado da compra original
+            mint: String::new(),
+            amount_sol: 0.1, // O volume real em SOL será decodificado na Parte 11
             tx_origin: event.signature.clone(),
-            wallet: mock_target_wallet,
+            wallet: String::new(),
         }
     } else if is_sell {
         Action::Sell {
-            mint: "ExtracaoPendente".to_string(),
-            amount_tokens: 1000.0,
+            mint: String::new(),
+            amount_tokens: 100.0,
             tx_origin: event.signature.clone(),
-            wallet: mock_target_wallet,
+            wallet: String::new(),
         }
     } else {
         Action::Irrelevant

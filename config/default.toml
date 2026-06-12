@@ -5,7 +5,7 @@ rpc_timeout_ms = 2000
 max_slippage_bps = 100
 max_position_sol = 0.5
 min_position_sol = 0.01
+# Você precisará olhar o explorer da Solana e colocar carteiras REAIS aqui agora
 target_wallets = [
-    "TargetWallet111111111111111111111111111111",
-    "OutraWalletMestraXyz789"
+    "CarteiraRealDeUmTraderAqui"
 ]
