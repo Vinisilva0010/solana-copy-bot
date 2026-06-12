@@ -67,3 +67,18 @@ pub struct PaperTrade {
     pub execution_amount_sol: f64,
     pub timestamp: u64,
 }
+
+#[derive(Debug, Clone)]
+pub struct TradeRecord {
+    pub execution_mode: String,
+    pub original_tx: String,
+    pub bot_tx: String,
+    pub mint: String,
+    pub amount_sol: f64,
+    pub slot: u64,
+    pub price: f64,
+    pub mc_origin: f64,
+    pub mc_bot: f64,
+    pub timestamp: u64,
+}
+

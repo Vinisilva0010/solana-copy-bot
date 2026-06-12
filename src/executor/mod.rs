@@ -73,3 +73,63 @@ pub async fn build_transaction(
 
     Ok(transaction)
 }
+
+use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_client::rpc_config::RpcSimulateTransactionConfig;
+use solana_sdk::commitment_config::CommitmentConfig;
+use solana_sdk::signature::Keypair;
+use solana_sdk::signer::Signer;
+
+pub async fn execute_transaction(
+    rpc_client: &RpcClient,
+    mut transaction: VersionedTransaction,
+    keypair: &Keypair,
+    mode: &str,
+) -> Result<(), Box<dyn Error>> {
+    // A transação construída pelo PumpPortal coloca a public_key enviada como fee_payer (índice 0)
+    // Assinamos o buffer da mensagem e injetamos a assinatura criptográfica.
+    let message_bytes = transaction.message.serialize();
+    let signature = keypair.sign_message(&message_bytes);
+    transaction.signatures[0] = signature;
+
+    match mode.to_uppercase().as_str() {
+        "PAPER" => {
+            info!("[PAPER] Transação de {} assinada em memória. Nenhuma chamada RPC efetuada.", signature);
+        }
+        "SIMULATED" => {
+            info!("[SIMULATED] Submetendo transação {} para simulação de rede...", signature);
+            
+            let config = RpcSimulateTransactionConfig {
+                sig_verify: true, // Garante que a assinatura é válida (previne erro em LIVE)
+                replace_recent_blockhash: false, // Usamos o blockhash otimizado já retornado pela PumpPortal
+                commitment: Some(CommitmentConfig::processed()),
+                ..Default::default()
+            };
+
+            let result = rpc_client.simulate_transaction_with_config(&transaction, config).await?;
+
+            if let Some(err) = result.value.err {
+                error!("[SIMULATED] Falha na simulação: {:?}", err);
+                if let Some(logs) = result.value.logs {
+                    for log in logs {
+                        debug!("SimLog: {}", log);
+                    }
+                }
+            } else {
+                let units = result.value.units_consumed.unwrap_or(0);
+                info!("[SIMULATED] Sucesso on-chain confirmado. Compute Units: {}", units);
+            }
+        }
+        "LIVE" => {
+            info!("[LIVE] Efetuando broadcast na mainnet. Assinatura: {}", signature);
+            // Em fases futuras, este bloco será substituído por chamadas à API do Jito para envio de Bundles.
+            let sig = rpc_client.send_transaction(&transaction).await?;
+            info!("[LIVE] Transação enviada com sucesso: {}", sig);
+        }
+        _ => {
+            error!("Modo de execução inválido: {}. Abortando.", mode);
+        }
+    }
+
+    Ok(())
+}
