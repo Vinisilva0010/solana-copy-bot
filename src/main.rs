@@ -5,7 +5,7 @@ use reqwest::Client;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 pub mod classifier;
 pub mod executor;
@@ -20,6 +20,7 @@ pub mod utils;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscriber = tracing_subscriber::FmtSubscriber::builder().with_max_level(tracing::Level::INFO).finish();
     tracing::subscriber::set_global_default(subscriber)?;
+    let start_time = Instant::now();
 
     let app_config = utils::load_config().expect("Falha crítica ao carregar configuração.");
     tracing::info!("Executando bot. Modo: {}", app_config.execution_mode);
@@ -30,7 +31,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Inicializa a interface do Telegram caso o token exista no ambiente
     if let Some(telegram_token) = app_config.telegram_bot_token.clone() {
         if !telegram_token.is_empty() {
-            telegram::start_telemetry_service(telegram_token, "storage/db/telemetry.db".to_string()).await;
+            telegram::start_telemetry_service(
+                telegram_token, 
+                "storage/db/telemetry.db".to_string(),
+                start_time,
+                app_config.execution_mode.clone()
+            ).await;
         }
     }
 
