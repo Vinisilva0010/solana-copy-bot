@@ -58,8 +58,28 @@ pub async fn execute_trade(
         .get_latest_blockhash_with_commitment(CommitmentConfig::confirmed())
         .await?;
 
-    let signature = bot_keypair.sign_message(&tx.message.serialize());
-    tx.signatures[0] = signature;
+    // ITEM 14: Validação rigorosa de Signer e Criptografia da VersionedTransaction
+    let message_bytes = tx.message.serialize();
+    
+    let expected_signer = tx.message.static_account_keys().first()
+        .ok_or("Payload corrompido: A API não retornou contas na transação.")?;
+    
+    if expected_signer != &bot_keypair.pubkey() {
+        return Err(format!("Inconsistência Crítica: PumpPortal colocou {} como signer primário, mas o bot é {}", expected_signer, bot_keypair.pubkey()).into());
+    }
+
+    let signature = bot_keypair.sign_message(&message_bytes);
+    
+    if !signature.verify(bot_keypair.pubkey().as_ref(), &message_bytes) {
+        return Err("Falha Matemática: A assinatura Ed25519 gerada é inválida para este bloco de bytes.".into());
+    }
+
+    if tx.signatures.is_empty() {
+        tx.signatures.push(signature);
+    } else {
+        tx.signatures[0] = signature;
+    }
+
     let sig_string = signature.to_string();
 
     if *execution_mode == ExecutionMode::Live {
