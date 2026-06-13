@@ -14,11 +14,18 @@ pub struct TradingConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct TelegramConfig {
+    pub bot_token: String,
+    pub chat_id: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
     pub rpc_url_http: String,
     pub rpc_url_ws: String,
     pub execution_mode: String,
-    pub telegram_bot_token: Option<String>,
+    pub wallet_path: String,
+    pub telegram: Option<TelegramConfig>,
     pub network: NetworkConfig,
     pub trading: TradingConfig,
 }

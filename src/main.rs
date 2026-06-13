@@ -1,6 +1,5 @@
 use reqwest::Client;
 use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
@@ -30,10 +29,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tx_telemetry, rx_telemetry) = mpsc::channel::<models::TradeRecord>(5000);
     telemetry::start_telemetry_worker("storage/db/telemetry.db".to_string(), rx_telemetry).await;
 
-    if let Some(telegram_token) = app_config.telegram_bot_token.clone() {
-        if !telegram_token.is_empty() {
+    // Atualizado para refletir a nova estrutura aninhada do AppConfig
+    if let Some(tele_cfg) = app_config.telegram.clone() {
+        if !tele_cfg.bot_token.is_empty() {
             telegram::start_telemetry_service(
-                telegram_token,
+                tele_cfg.bot_token.clone(),
                 "storage/db/telemetry.db".to_string(),
                 start_time,
                 app_config.execution_mode.clone()
@@ -47,9 +47,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let rpc_client = RpcClient::new(app_config.rpc_url_http.clone());
 
-    let bot_keypair = Keypair::new();
+    // CARREGAMENTO DA WALLET PERSISTENTE
+    let bot_keypair = solana_sdk::signature::read_keypair_file(&app_config.wallet_path)
+        .unwrap_or_else(|_| panic!("FALHA CRÍTICA: Arquivo de wallet não encontrado em {}", app_config.wallet_path));
     let bot_pubkey = bot_keypair.pubkey().to_string();
-    info!("Keypair carregado. Pubkey ativa: {}", bot_pubkey);
+    tracing::info!("Identidade Persistente Carregada. Pubkey ativa: {}", bot_pubkey);
 
     let (tx_ingestion, mut rx_classifier) = mpsc::channel::<models::RawTransactionEvent>(10000);
 
@@ -117,32 +119,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                         let _ = tx_telemetry.send(record).await;
 
-                        let token_opt = app_config.telegram_bot_token.clone();
+                        let telegram_cfg = app_config.telegram.clone();
                         let mode_str = app_config.execution_mode.clone();
                         let client_clone = http_client.clone();
                         let amount = paper_trade.execution_amount_sol;
                         let target = paper_trade.mint.clone();
 
                         tokio::spawn(async move {
-                            if let Some(token) = token_opt {
-                                if let Ok(chat_id) = std::env::var("TELEGRAM_CHAT_ID") {
-                                    let alert_msg = format!(
-                                        "[ ALERTA DE EXECUÇÃO : {} ]\n\n\
-                                        Contrato Alvo: {}\n\
-                                        Volume Processado: {:.4} SOL\n\
-                                        Assinatura: {}",
-                                        mode_str, target, amount, tx_signature
-                                    );
-                                    
-                                    let url = format!("https://api.telegram.org/bot{}/sendMessage", token);
-                                    let payload = serde_json::json!({
-                                        "chat_id": chat_id,
-                                        "text": alert_msg,
-                                        "disable_web_page_preview": true
-                                    });
-                                    
-                                    let _ = client_clone.post(&url).json(&payload).send().await;
-                                }
+                            if let Some(tele_cfg) = telegram_cfg {
+                                let alert_msg = format!(
+                                    "[ ALERTA DE EXECUÇÃO : {} ]\n\n\
+                                    Contrato Alvo: {}\n\
+                                    Volume Processado: {:.4} SOL\n\
+                                    Assinatura: {}",
+                                    mode_str, target, amount, tx_signature
+                                );
+                                
+                                let url = format!("https://api.telegram.org/bot{}/sendMessage", tele_cfg.bot_token);
+                                let payload = serde_json::json!({
+                                    "chat_id": tele_cfg.chat_id,
+                                    "text": alert_msg,
+                                    "disable_web_page_preview": true
+                                });
+                                
+                                let _ = client_clone.post(&url).json(&payload).send().await;
                             }
                         });
                     }

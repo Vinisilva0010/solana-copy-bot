@@ -2,7 +2,7 @@ use rusqlite::Connection;
 use std::error::Error;
 use std::time::Instant;
 use teloxide::{prelude::*, utils::command::BotCommands};
-use tracing::{error, info};
+use tracing::info;
 
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase", description = "Comandos de Controle HFT")]
