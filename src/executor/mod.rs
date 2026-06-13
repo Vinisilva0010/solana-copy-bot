@@ -1,4 +1,4 @@
-use crate::models::{ExecutionResult, ExecutionStatus, PaperTrade, TradingConfig, ExecutionMode};
+use crate::models::{ExecutionResult, ExecutionStatus, PaperTrade, TradingConfig, ExecutionMode, TradeSide};
 use reqwest::Client;
 use serde_json::json;
 use solana_client::nonblocking::rpc_client::RpcClient;
@@ -18,12 +18,28 @@ pub async fn execute_trade(
     execution_mode: &ExecutionMode,
 ) -> Result<ExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
     
+    let action_str = match paper_trade.side {
+        TradeSide::Buy => "buy",
+        TradeSide::Sell => "sell",
+    };
+
+    let denominated = match paper_trade.side {
+        TradeSide::Buy => "true",
+        TradeSide::Sell => "false",
+    };
+
+    let amount_val: serde_json::Value = if paper_trade.amount_payload == "100%" {
+        json!("100%")
+    } else {
+        json!(paper_trade.amount_payload.parse::<f64>().unwrap_or(0.01))
+    };
+
     let payload = json!({
         "publicKey": bot_keypair.pubkey().to_string(),
-        "action": "buy",
+        "action": action_str,
         "mint": paper_trade.mint,
-        "amount": paper_trade.execution_amount_sol,
-        "denominatedInSol": "true",
+        "amount": amount_val,
+        "denominatedInSol": denominated,
         "slippage": trading_config.max_slippage_bps,
         "priorityFee": 0.0001,
         "pool": "pump"
@@ -36,7 +52,7 @@ pub async fn execute_trade(
 
     let tx_bytes = res.bytes().await?;
     let mut tx: VersionedTransaction = bincode::deserialize(&tx_bytes)
-        .map_err(|e| format!("Falha de desserialização da transação: {}", e))?;
+        .map_err(|e| format!("Falha de desserialização da transação. Payload da PumpPortal falhou. Erro: {}", e))?;
 
     let (recent_blockhash, last_valid_block_height) = rpc_client
         .get_latest_blockhash_with_commitment(CommitmentConfig::confirmed())

@@ -86,44 +86,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if let Some(trade_data) = enriched {
             if let Some(paper_trade) = strategy::evaluate_action(&trade_data, &app_config.trading) {
-                if paper_trade.side == models::TradeSide::Buy {
-                    tracing::info!("[ESTRATÉGIA APROVADA] Transferindo controle para o Executor...");
-                    
-                    match executor::execute_trade(
-                        &http_client, 
-                        &rpc_client, 
-                        &paper_trade, 
-                        &app_config.trading, 
-                        &bot_keypair, 
-                        &app_config.execution_mode
-                    ).await {
-                        Ok(exec_result) => {
-                            let mode_string = format!("{:?}", exec_result.mode).to_uppercase();
-                            
-                            let record = models::TradeRecord {
-                                execution_mode: mode_string.clone(),
-                                original_tx: paper_trade.original_tx.clone(),
-                                bot_tx: exec_result.signature.clone(),
-                                mint: paper_trade.mint.clone(),
-                                amount_sol: paper_trade.execution_amount_sol,
-                                slot: Some(paper_trade.slot),
-                                price: None,
-                                mc_origin: None,
-                                mc_bot: None,
-                                timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-                            };
+                
+                let side_str = match paper_trade.side {
+                    models::TradeSide::Buy => "COMPRA",
+                    models::TradeSide::Sell => "VENDA",
+                };
+                
+                tracing::info!("[ESTRATÉGIA APROVADA] Disparando ordem de {} para o Executor...", side_str);
+                
+                match executor::execute_trade(
+                    &http_client, 
+                    &rpc_client, 
+                    &paper_trade, 
+                    &app_config.trading, 
+                    &bot_keypair, 
+                    &app_config.execution_mode
+                ).await {
+                    Ok(exec_result) => {
+                        let mode_string = format!("{:?}", exec_result.mode).to_uppercase();
+                        
+                        let record = models::TradeRecord {
+                            execution_mode: mode_string.clone(),
+                            original_tx: paper_trade.original_tx.clone(),
+                            bot_tx: exec_result.signature.clone(),
+                            mint: paper_trade.mint.clone(),
+                            amount_sol: paper_trade.amount_sol_db,
+                            slot: Some(paper_trade.slot),
+                            price: None,
+                            mc_origin: None,
+                            mc_bot: None,
+                            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                        };
 
-                            let _ = tx_telemetry.send(record).await;
+                        let _ = tx_telemetry.send(record).await;
 
-                            let alert_msg = format!(
-                                "[ ALERTA DE EXECUÇÃO : {} ]\n\nStatus: {:?}\nContrato Alvo: {}\nAssinatura: {}\nErro: {}",
-                                mode_string, exec_result.status, paper_trade.mint, exec_result.signature,
-                                exec_result.error_msg.unwrap_or_else(|| "Nenhum".to_string())
-                            );
-                            let _ = tx_alerts.send(alert_msg).await;
-                        }
-                        Err(e) => tracing::error!("Falha crítica no fluxo de execução: {}", e),
+                        let alert_msg = format!(
+                            "[ ALERTA DE EXECUÇÃO : {} ]\n\nOperação: {}\nStatus: {:?}\nContrato: {}\nAssinatura: {}\nErro: {}",
+                            mode_string, side_str, exec_result.status, paper_trade.mint, exec_result.signature,
+                            exec_result.error_msg.unwrap_or_else(|| "Nenhum".to_string())
+                        );
+                        let _ = tx_alerts.send(alert_msg).await;
                     }
+                    Err(e) => tracing::error!("Falha crítica no fluxo de execução: {}", e),
                 }
             }
         }

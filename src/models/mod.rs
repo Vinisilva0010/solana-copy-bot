@@ -73,7 +73,8 @@ pub struct PaperTrade {
     pub original_tx: String,
     pub mint: String,
     pub side: TradeSide,
-    pub execution_amount_sol: f64,
+    pub amount_payload: String, 
+    pub amount_sol_db: f64, 
     pub slot: u64,
     pub timestamp: u64,
 }
