@@ -1,5 +1,4 @@
 use rusqlite::Connection;
-use std::error::Error;
 use std::time::Instant;
 use tokio::sync::mpsc;
 use teloxide::{prelude::*, utils::command::BotCommands};
@@ -44,7 +43,7 @@ pub async fn init_telegram_module(
                                 let mins = (elapsed % 3600) / 60;
                                 let secs = elapsed % 60;
 
-                                let stats = fetch_db_stats(&db_path).unwrap_or((0, 0.0));
+                                let stats = fetch_db_stats(db_path).await.unwrap_or((0, 0.0));
 
                                 let status_msg = format!(
                                     "[ ZANVEXIS HFT CORE - STATUS ]\n\n\
@@ -60,7 +59,7 @@ pub async fn init_telegram_module(
                                 let _ = bot.send_message(msg.chat.id, status_msg).await;
                             }
                             Command::LastTrades => {
-                                let response = fetch_last_trades(&db_path)
+                                let response = fetch_last_trades(db_path).await
                                     .unwrap_or_else(|e| format!("Falha de I/O no banco de dados: {}", e));
                                 let _ = bot.send_message(msg.chat.id, response).await;
                             }
@@ -86,46 +85,55 @@ pub async fn init_telegram_module(
     });
 }
 
-fn fetch_db_stats(db_path: &str) -> Result<(i64, f64), Box<dyn Error + Send + Sync>> {
-    let conn = Connection::open(db_path)?;
-    let mut stmt = conn.prepare("SELECT COUNT(*), COALESCE(SUM(amount_sol), 0.0) FROM trades")?;
-    
-    let mut rows = stmt.query([])?;
-    if let Some(row) = rows.next()? {
-        let count: i64 = row.get(0)?;
-        let volume: f64 = row.get(1)?;
-        return Ok((count, volume));
-    }
-    
-    Ok((0, 0.0))
+async fn fetch_db_stats(db_path: String) -> Result<(i64, f64), String> {
+    tokio::task::spawn_blocking(move || -> Result<(i64, f64), String> {
+        let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare("SELECT COUNT(*), COALESCE(SUM(amount_sol), 0.0) FROM trades")
+            .map_err(|e| e.to_string())?;
+        
+        let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+        if let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            let count: i64 = row.get(0).map_err(|e| e.to_string())?;
+            let volume: f64 = row.get(1).map_err(|e| e.to_string())?;
+            return Ok((count, volume));
+        }
+        
+        Ok((0, 0.0))
+    })
+    .await
+    .unwrap_or_else(|_| Err("Task de I/O de disco falhou".to_string()))
 }
 
-fn fetch_last_trades(db_path: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let conn = Connection::open(db_path)?;
-    let mut stmt = conn.prepare(
-        "SELECT original_tx, amount_sol, execution_mode FROM trades ORDER BY id DESC LIMIT 5"
-    )?;
-    
-    let rows = stmt.query_map([], |row| {
-        let tx: String = row.get(0)?;
-        let amt: f64 = row.get(1)?;
-        let mode: String = row.get(2)?;
-        Ok(format!("[{}] Tx: {}... | Volume: {} SOL", mode, &tx[..8], amt))
-    })?;
+async fn fetch_last_trades(db_path: String) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || -> Result<String, String> {
+        let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare(
+            "SELECT original_tx, amount_sol, execution_mode FROM trades ORDER BY id DESC LIMIT 5"
+        ).map_err(|e| e.to_string())?;
+        
+        let rows = stmt.query_map([], |row| {
+            let tx: String = row.get(0)?;
+            let amt: f64 = row.get(1)?;
+            let mode: String = row.get(2)?;
+            Ok(format!("[{}] Tx: {}... | Volume: {} SOL", mode, &tx[..8], amt))
+        }).map_err(|e| e.to_string())?;
 
-    let mut output = String::from("Últimas operações consolidadas:\n\n");
-    let mut count = 0;
+        let mut output = String::from("Últimas operações consolidadas:\n\n");
+        let mut count = 0;
 
-    for row in rows {
-        if let Ok(line) = row {
-            output.push_str(&format!("{}\n", line));
-            count += 1;
+        for row in rows {
+            if let Ok(line) = row {
+                output.push_str(&format!("{}\n", line));
+                count += 1;
+            }
         }
-    }
 
-    if count == 0 {
-        return Ok("Nenhuma operação registrada na infraestrutura até o momento.".to_string());
-    }
+        if count == 0 {
+            return Ok("Nenhuma operação registrada na infraestrutura até o momento.".to_string());
+        }
 
-    Ok(output)
+        Ok(output)
+    })
+    .await
+    .unwrap_or_else(|_| Err("Task de I/O de disco falhou".to_string()))
 }
