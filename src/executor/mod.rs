@@ -86,81 +86,109 @@ pub async fn execute_trade(
 
     let sig_string = signature.to_string();
 
-    if *execution_mode == ExecutionMode::Live {
-        let send_config = RpcSendTransactionConfig {
-            skip_preflight: true,
-            max_retries: Some(0),
-            ..Default::default()
-        };
+    // ITEM 17: Roteamento de Borda para Múltiplos Backends
+    match *execution_mode {
+        ExecutionMode::Live => {
+            // Ponto de injeção arquitetural para MEV: 
+            // if config.use_jito { return send_via_jito_bundle(...).await; }
+            send_via_standard_rpc(rpc_client, tx, signature, sig_string, last_valid_block_height).await
+        }
+        ExecutionMode::Simulated | ExecutionMode::Paper => {
+            simulate_via_standard_rpc(rpc_client, tx, sig_string, execution_mode.clone()).await
+        }
+    }
+}
 
-        let mut current_status = ExecutionStatus::Failed;
-        let mut error_msg = None;
+// ==========================================
+// BACKENDS DE EXECUÇÃO ISOLADOS (Borda Arquitetural)
+// ==========================================
 
-        let _ = rpc_client.send_transaction_with_config(&tx, send_config).await;
+async fn send_via_standard_rpc(
+    rpc_client: &RpcClient,
+    tx: VersionedTransaction,
+    signature: solana_sdk::signature::Signature,
+    sig_string: String,
+    last_valid_block_height: u64,
+) -> Result<ExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
+    let send_config = RpcSendTransactionConfig {
+        skip_preflight: true,
+        max_retries: Some(0),
+        ..Default::default()
+    };
 
-        loop {
-            let current_height = rpc_client.get_block_height_with_commitment(CommitmentConfig::confirmed()).await?;
-            if current_height > last_valid_block_height {
-                current_status = ExecutionStatus::Expired;
-                error_msg = Some("Blockhash expirado".to_string());
-                break;
-            }
+    let mut current_status = ExecutionStatus::Failed;
+    let mut error_msg = None;
 
-            if let Ok(response) = rpc_client.get_signature_statuses(&[signature]).await {
-                if let Some(Some(status)) = response.value.get(0) {
-                    if status.confirmation_status.is_some() {
-                        if status.err.is_none() {
-                            current_status = ExecutionStatus::Success;
-                            break;
-                        } else {
-                            current_status = ExecutionStatus::Failed;
-                            error_msg = Some(format!("Revertido: {:?}", status.err));
-                            break;
-                        }
+    let _ = rpc_client.send_transaction_with_config(&tx, send_config).await;
+
+    loop {
+        let current_height = rpc_client.get_block_height_with_commitment(CommitmentConfig::confirmed()).await?;
+        if current_height > last_valid_block_height {
+            current_status = ExecutionStatus::Expired;
+            error_msg = Some("Blockhash expirado (LastValidBlockHeight ultrapassado)".to_string());
+            break;
+        }
+
+        if let Ok(response) = rpc_client.get_signature_statuses(&[signature]).await {
+            if let Some(Some(status)) = response.value.get(0) {
+                if status.confirmation_status.is_some() {
+                    if status.err.is_none() {
+                        current_status = ExecutionStatus::Success;
+                        break;
+                    } else {
+                        current_status = ExecutionStatus::Failed;
+                        error_msg = Some(format!("Revertido pela rede: {:?}", status.err));
+                        break;
                     }
                 }
             }
-
-            let _ = rpc_client.send_transaction_with_config(&tx, send_config).await;
-            tokio::time::sleep(Duration::from_millis(400)).await;
         }
 
-        Ok(ExecutionResult {
-            mode: execution_mode.clone(),
-            status: current_status,
-            signature: sig_string,
-            units_consumed: 0,
-            slot: None,
-            logs: vec![],
-            error_msg,
-        })
-
-    } else {
-        // ITEM 16: Fidelidade Absoluta na Simulação
-        let sim_config = RpcSimulateTransactionConfig {
-            sig_verify: true, // Força a rede a validar a assinatura criptográfica que geramos
-            replace_recent_blockhash: false, // Proíbe o RPC de jogar nosso blockhash no lixo
-            commitment: Some(CommitmentConfig::confirmed()),
-            ..Default::default()
-        };
-
-        let sim_result = rpc_client.simulate_transaction_with_config(&tx, sim_config).await?;
-        let val = sim_result.value;
-
-        let status = if val.err.is_none() {
-            ExecutionStatus::SimulatedSuccess
-        } else {
-            ExecutionStatus::SimulatedFailed
-        };
-
-        Ok(ExecutionResult {
-            mode: execution_mode.clone(),
-            status,
-            signature: sig_string,
-            units_consumed: val.units_consumed.unwrap_or(0),
-            slot: None,
-            logs: val.logs.unwrap_or_default(),
-            error_msg: val.err.map(|e| format!("{:?}", e)),
-        })
+        let _ = rpc_client.send_transaction_with_config(&tx, send_config).await;
+        tokio::time::sleep(Duration::from_millis(400)).await;
     }
+
+    Ok(ExecutionResult {
+        mode: ExecutionMode::Live,
+        status: current_status,
+        signature: sig_string,
+        units_consumed: 0,
+        slot: None,
+        logs: vec![],
+        error_msg,
+    })
+}
+
+async fn simulate_via_standard_rpc(
+    rpc_client: &RpcClient,
+    tx: VersionedTransaction,
+    sig_string: String,
+    original_mode: ExecutionMode,
+) -> Result<ExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
+    // ITEM 16: Fidelidade Absoluta na Simulação (preservado)
+    let sim_config = RpcSimulateTransactionConfig {
+        sig_verify: true, 
+        replace_recent_blockhash: false, 
+        commitment: Some(CommitmentConfig::confirmed()),
+        ..Default::default()
+    };
+
+    let sim_result = rpc_client.simulate_transaction_with_config(&tx, sim_config).await?;
+    let val = sim_result.value;
+
+    let status = if val.err.is_none() {
+        ExecutionStatus::SimulatedSuccess
+    } else {
+        ExecutionStatus::SimulatedFailed
+    };
+
+    Ok(ExecutionResult {
+        mode: original_mode,
+        status,
+        signature: sig_string,
+        units_consumed: val.units_consumed.unwrap_or(0),
+        slot: None,
+        logs: val.logs.unwrap_or_default(),
+        error_msg: val.err.map(|e| format!("{:?}", e)),
+    })
 }
