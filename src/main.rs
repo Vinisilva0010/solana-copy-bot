@@ -29,13 +29,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tx_telemetry, rx_telemetry) = mpsc::channel::<models::TradeRecord>(5000);
     telemetry::start_telemetry_worker("storage/db/telemetry.db".to_string(), rx_telemetry).await;
 
+    let (tx_alerts, rx_alerts) = mpsc::channel::<String>(1000);
+
     if let Some(tele_cfg) = app_config.telegram.clone() {
         if !tele_cfg.bot_token.is_empty() {
-            telegram::start_telemetry_service(
-                tele_cfg.bot_token.clone(),
+            telegram::init_telegram_module(
+                tele_cfg.bot_token,
+                tele_cfg.chat_id,
                 "storage/db/telemetry.db".to_string(),
                 start_time,
-                app_config.execution_mode.clone()
+                app_config.execution_mode.clone(),
+                rx_alerts
             ).await;
         }
     }
@@ -49,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bot_keypair = solana_sdk::signature::read_keypair_file(&app_config.wallet_path)
         .unwrap_or_else(|_| panic!("FALHA CRÍTICA: Arquivo de wallet não encontrado em {}", app_config.wallet_path));
     let bot_pubkey = bot_keypair.pubkey().to_string();
-    tracing::info!("Identidade Persistente Carregada. Pubkey ativa: {}", bot_pubkey);
+    tracing::info!("Identidade Persistente Carregada. Pubkey activa: {}", bot_pubkey);
 
     let (tx_ingestion, mut rx_classifier) = mpsc::channel::<models::RawTransactionEvent>(10000);
 
@@ -89,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if let Some(paper_trade) = strategy::evaluate_action(&action, &app_config.trading) {
             if paper_trade.side.as_str() == "BUY" {
-                tracing::info!("📋 [ESTRATÉGIA APROVADA] Transferindo controle para o Executor...");
+                tracing::info!("[ESTRATÉGIA APROVADA] Transferindo controle para o Executor...");
                 
                 match executor::execute_trade(
                     &http_client, 
@@ -115,35 +119,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                         let _ = tx_telemetry.send(record).await;
 
-                        let telegram_cfg = app_config.telegram.clone();
-                        let target = paper_trade.mint.clone();
-                        let client_clone = http_client.clone();
-
-                        tokio::spawn(async move {
-                            if let Some(tele_cfg) = telegram_cfg {
-                                let alert_msg = format!(
-                                    "[ ALERTA DE EXECUÇÃO : {} ]\n\n\
-                                    Status: {:?}\n\
-                                    Contrato Alvo: {}\n\
-                                    Assinatura: {}\n\
-                                    Erro (se houver): {}",
-                                    exec_result.mode, 
-                                    exec_result.status, 
-                                    target, 
-                                    exec_result.signature,
-                                    exec_result.error_msg.unwrap_or_else(|| "Nenhum".to_string())
-                                );
-                                
-                                let url = format!("https://api.telegram.org/bot{}/sendMessage", tele_cfg.bot_token);
-                                let payload = serde_json::json!({
-                                    "chat_id": tele_cfg.chat_id,
-                                    "text": alert_msg,
-                                    "disable_web_page_preview": true
-                                });
-                                
-                                let _ = client_clone.post(&url).json(&payload).send().await;
-                            }
-                        });
+                        let alert_msg = format!(
+                            "[ ALERTA DE EXECUÇÃO : {} ]\n\n\
+                            Status: {:?}\n\
+                            Contrato Alvo: {}\n\
+                            Assinatura: {}\n\
+                            Erro (se houver): {}",
+                            exec_result.mode, 
+                            exec_result.status, 
+                            paper_trade.mint, 
+                            exec_result.signature,
+                            exec_result.error_msg.unwrap_or_else(|| "Nenhum".to_string())
+                        );
+                        
+                        let _ = tx_alerts.send(alert_msg).await;
                     }
                     Err(e) => {
                         tracing::error!("Falha crítica no fluxo de execução: {}", e);

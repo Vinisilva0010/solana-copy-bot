@@ -1,8 +1,9 @@
 use rusqlite::Connection;
 use std::error::Error;
 use std::time::Instant;
+use tokio::sync::mpsc;
 use teloxide::{prelude::*, utils::command::BotCommands};
-use tracing::info;
+use tracing::{error, info};
 
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase", description = "Comandos de Controle HFT")]
@@ -13,22 +14,28 @@ enum Command {
     LastTrades,
 }
 
-pub async fn start_telemetry_service(
-    token: String, 
-    db_path: String, 
-    start_time: Instant, 
-    execution_mode: String
+pub async fn init_telegram_module(
+    token: String,
+    chat_id: String,
+    db_path: String,
+    start_time: Instant,
+    execution_mode: String,
+    mut rx_alerts: mpsc::Receiver<String>,
 ) {
-    tokio::spawn(async move {
-        let bot = Bot::new(token);
-        info!("Serviço de controle do Telegram inicializado e escutando comandos.");
+    let bot = Bot::new(token.clone());
+    info!("Serviço de controle do Telegram inicializado e escutando comandos.");
 
+    let bot_clone = bot.clone();
+    let db_path_clone = db_path.clone();
+    let exec_mode_clone = execution_mode.clone();
+    
+    tokio::spawn(async move {
         let handler = Update::filter_message().branch(
             dptree::entry()
                 .filter_command::<Command>()
                 .endpoint(move |bot: Bot, msg: Message, cmd: Command| {
-                    let db_path = db_path.clone();
-                    let exec_mode = execution_mode.clone();
+                    let db_path = db_path_clone.clone();
+                    let exec_mode = exec_mode_clone.clone();
                     async move {
                         match cmd {
                             Command::Status => {
@@ -63,11 +70,19 @@ pub async fn start_telemetry_service(
                 }),
         );
 
-        Dispatcher::builder(bot, handler)
+        Dispatcher::builder(bot_clone, handler)
             .enable_ctrlc_handler()
             .build()
             .dispatch()
             .await;
+    });
+
+    tokio::spawn(async move {
+        while let Some(alert_text) = rx_alerts.recv().await {
+            if let Err(e) = bot.send_message(chat_id.clone(), alert_text).disable_web_page_preview(true).await {
+                error!("Falha ao transmitir alerta via API do Telegram: {}", e);
+            }
+        }
     });
 }
 
