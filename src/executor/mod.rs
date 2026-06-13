@@ -58,6 +58,10 @@ pub async fn execute_trade(
         .get_latest_blockhash_with_commitment(CommitmentConfig::confirmed())
         .await?;
 
+    // ITEM 15: Política de Blockhash Explícita.
+    // Descartamos o blockhash da API e forçamos o do nosso RPC para garantir 150 slots reais.
+    tx.message.set_recent_blockhash(recent_blockhash);
+
     // ITEM 14: Validação rigorosa de Signer e Criptografia da VersionedTransaction
     let message_bytes = tx.message.serialize();
     
