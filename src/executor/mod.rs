@@ -136,9 +136,11 @@ pub async fn execute_trade(
         })
 
     } else {
+        // ITEM 16: Fidelidade Absoluta na Simulação
         let sim_config = RpcSimulateTransactionConfig {
+            sig_verify: true, // Força a rede a validar a assinatura criptográfica que geramos
+            replace_recent_blockhash: false, // Proíbe o RPC de jogar nosso blockhash no lixo
             commitment: Some(CommitmentConfig::confirmed()),
-            replace_recent_blockhash: true,
             ..Default::default()
         };
 
