@@ -30,20 +30,11 @@ pub struct AppConfig {
     pub trading: TradingConfig,
 }
 
-
-
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub enum ExecutionMode {
     Paper,
     Simulated,
     Live,
-}
-
-#[derive(Debug, Clone)]
-pub struct RawTransactionEvent {
-    pub signature: String,
-    pub logs: Vec<String>,
-    pub has_error: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -52,15 +43,21 @@ pub enum TradeSide {
     Sell,
 }
 
-// O que o classificador detecta na velocidade da luz
+#[derive(Debug, Clone)]
+pub struct RawTransactionEvent {
+    pub signature: String,
+    pub logs: Vec<String>,
+    pub has_error: bool,
+    pub slot: u64,
+}
+
 #[derive(Debug, Clone)]
 pub enum RawIntent {
-    Buy { signature: String },
-    Sell { signature: String },
+    Buy { signature: String, slot: u64 },
+    Sell { signature: String, slot: u64 },
     Irrelevant,
 }
 
-// O que o extrator confirma após ler a blockchain
 #[derive(Debug, Clone)]
 pub struct EnrichedTrade {
     pub side: TradeSide,
@@ -68,14 +65,16 @@ pub struct EnrichedTrade {
     pub mint: String,
     pub wallet: String,
     pub amount: f64,
+    pub slot: u64,
 }
 
 #[derive(Debug, Clone)]
 pub struct PaperTrade {
     pub original_tx: String,
     pub mint: String,
-    pub side: TradeSide, // Agora é protegido pelo compilador
+    pub side: TradeSide,
     pub execution_amount_sol: f64,
+    pub slot: u64,
     pub timestamp: u64,
 }
 

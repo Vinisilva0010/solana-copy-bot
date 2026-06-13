@@ -65,18 +65,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let intent = classifier::classify_pump_event(&event);
 
         let enriched = match intent {
-            models::RawIntent::Buy { signature } => {
+            models::RawIntent::Buy { signature, slot } => {
                 match extractor::fetch_trade_details(&http_client, &app_config.rpc_url_http, &signature).await {
                     Ok((wallet, mint, amount)) => Some(models::EnrichedTrade {
-                        side: models::TradeSide::Buy, signature, mint, wallet, amount
+                        side: models::TradeSide::Buy, signature, mint, wallet, amount, slot
                     }),
                     Err(_) => continue,
                 }
             }
-            models::RawIntent::Sell { signature } => {
+            models::RawIntent::Sell { signature, slot } => {
                 match extractor::fetch_trade_details(&http_client, &app_config.rpc_url_http, &signature).await {
                     Ok((wallet, mint, amount)) => Some(models::EnrichedTrade {
-                        side: models::TradeSide::Sell, signature, mint, wallet, amount
+                        side: models::TradeSide::Sell, signature, mint, wallet, amount, slot
                     }),
                     Err(_) => continue,
                 }
@@ -106,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 bot_tx: exec_result.signature.clone(),
                                 mint: paper_trade.mint.clone(),
                                 amount_sol: paper_trade.execution_amount_sol,
-                                slot: exec_result.slot,
+                                slot: Some(paper_trade.slot),
                                 price: None,
                                 mc_origin: None,
                                 mc_bot: None,

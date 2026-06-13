@@ -13,6 +13,7 @@ pub fn evaluate_action(trade: &EnrichedTrade, config: &TradingConfig) -> Option<
         mint: trade.mint.clone(),
         side: trade.side.clone(),
         execution_amount_sol: amount_to_execute,
+        slot: trade.slot,
         timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
     })
 }

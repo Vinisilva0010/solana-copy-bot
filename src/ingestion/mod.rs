@@ -35,6 +35,7 @@ pub async fn start_stream(ws_url: String, tx_channel: mpsc::Sender<RawTransactio
                                     signature: log_info.value.signature.clone(),
                                     logs: log_info.value.logs.clone(),
                                     has_error: log_info.value.err.is_some(),
+                                    slot: log_info.context.slot,
                                 };
                                 
                                 if tx_channel.send(event).await.is_err() {
@@ -42,7 +43,7 @@ pub async fn start_stream(ws_url: String, tx_channel: mpsc::Sender<RawTransactio
                                     return;
                                 }
                             }
-                            warn!("A stream de logs foi finalizada pelo servidor RPC. Iniciando protocolo de reconexão...");
+                            warn!("A stream de logs foi finalizada pelo servidor RPC. Iniciando reconexão...");
                         }
                         Err(e) => {
                             error!("Falha ao assinar logs na Helius: {}", e);
@@ -54,7 +55,7 @@ pub async fn start_stream(ws_url: String, tx_channel: mpsc::Sender<RawTransactio
                 }
             }
 
-            warn!("Rede instável. Aguardando {} segundos para a próxima tentativa de reconexão...", backoff_secs);
+            warn!("Rede instável. Aguardando {} segundos para a próxima tentativa...", backoff_secs);
             tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
             
             backoff_secs = std::cmp::min(backoff_secs * 2, 30);
