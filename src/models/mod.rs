@@ -81,15 +81,22 @@ pub struct PaperTrade {
 
 #[derive(Debug, Clone)]
 pub struct TradeRecord {
-    pub execution_mode: String,
+    // Fase 1: Observação (Market Context)
     pub original_tx: String,
-    pub bot_tx: String,
-    pub mint: String,
-    pub amount_sol: f64,
-    pub slot: Option<u64>,
-    pub price: Option<f64>,
-    pub mc_origin: Option<f64>,
-    pub mc_bot: Option<f64>,
+    pub original_mint: String,
+    pub original_amount_sol: f64,
+    pub original_slot: u64,
+    
+    // Fase 2: Decisão (Bot Strategy)
+    pub bot_side: String,
+    pub execution_mode: String,
+    
+    // Fase 3: Execução (Network Lifecycle)
+    pub bot_tx: Option<String>,
+    pub bot_status: String,
+    pub units_consumed: u64,
+    
+    // Fase 4: Temporal
     pub timestamp: u64,
 }
 

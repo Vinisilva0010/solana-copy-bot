@@ -13,29 +13,30 @@ pub async fn start_telemetry_worker(db_path: String, mut rx: mpsc::Receiver<Trad
         }
         match Connection::open(&init_path) {
             Ok(conn) => {
+                // Tabela reconstruída com as colunas da fase 1, 2, 3 e 4
                 let _ = conn.execute(
                     "CREATE TABLE IF NOT EXISTS trades (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        execution_mode TEXT NOT NULL,
                         original_tx TEXT NOT NULL,
-                        bot_tx TEXT NOT NULL,
-                        mint TEXT NOT NULL,
-                        amount_sol REAL NOT NULL,
-                        slot INTEGER,
-                        price REAL,
-                        mc_origin REAL,
-                        mc_bot REAL,
+                        original_mint TEXT NOT NULL,
+                        original_amount_sol REAL NOT NULL,
+                        original_slot INTEGER NOT NULL,
+                        bot_side TEXT NOT NULL,
+                        execution_mode TEXT NOT NULL,
+                        bot_tx TEXT,
+                        bot_status TEXT NOT NULL,
+                        units_consumed INTEGER NOT NULL,
                         timestamp INTEGER NOT NULL
                     )",
                     [],
                 );
-                info!("Banco de dados SQLite inicializado em {}", init_path);
+                info!("Banco de dados SQLite inicializado com schema profissional.");
             }
-            Err(e) => error!("Falha ao inicializar o banco SQLite em {}: {}", init_path, e),
+            Err(e) => error!("Falha ao inicializar o banco SQLite: {}", e),
         }
     })
     .await
-    .unwrap_or_else(|e| error!("Falha grave na task de inicialização do SQLite: {}", e));
+    .unwrap_or_else(|e| error!("Falha grave na task de inicialização: {}", e));
 
     tokio::spawn(async move {
         while let Some(record) = rx.recv().await {
@@ -44,23 +45,18 @@ pub async fn start_telemetry_worker(db_path: String, mut rx: mpsc::Receiver<Trad
             tokio::task::spawn_blocking(move || {
                 if let Ok(conn) = Connection::open(&path) {
                     let res = conn.execute(
-                        "INSERT INTO trades (execution_mode, original_tx, bot_tx, mint, amount_sol, slot, price, mc_origin, mc_bot, timestamp)
-                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                        "INSERT INTO trades (
+                            original_tx, original_mint, original_amount_sol, original_slot, 
+                            bot_side, execution_mode, bot_tx, bot_status, units_consumed, timestamp
+                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                         params![
-                            record.execution_mode,
-                            record.original_tx,
-                            record.bot_tx,
-                            record.mint,
-                            record.amount_sol,
-                            record.slot,
-                            record.price,
-                            record.mc_origin,
-                            record.mc_bot,
-                            record.timestamp,
+                            record.original_tx, record.original_mint, record.original_amount_sol, record.original_slot,
+                            record.bot_side, record.execution_mode, record.bot_tx, record.bot_status, 
+                            record.units_consumed, record.timestamp,
                         ],
                     );
                     if let Err(e) = res {
-                        error!("Erro de I/O ao gravar telemetria no SQLite: {}", e);
+                        error!("Erro de I/O ao gravar telemetria: {}", e);
                     }
                 }
             });

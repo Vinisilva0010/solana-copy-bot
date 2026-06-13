@@ -38,8 +38,8 @@ pub async fn start_stream(ws_url: String, tx_channel: mpsc::Sender<RawTransactio
                                     slot: log_info.context.slot,
                                 };
                                 
-                                if tx_channel.send(event).await.is_err() {
-                                    error!("Canal de ingestão corrompido. Encerrando worker de rede.");
+                                if let Err(e) = tx_channel.send(event).await {
+                                    tracing::error!("Falha fatal no canal de ingestão (Pipeline bloqueado): {}", e);
                                     return;
                                 }
                             }

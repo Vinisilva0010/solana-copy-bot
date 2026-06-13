@@ -23,6 +23,7 @@ pub fn classify_pump_event(event: &RawTransactionEvent) -> RawIntent {
     } else if is_sell {
         RawIntent::Sell { signature: event.signature.clone(), slot: event.slot }
     } else {
+        tracing::trace!("Log de evento não contém instruções de buy/sell reconhecidas.");
         RawIntent::Irrelevant
     }
 }

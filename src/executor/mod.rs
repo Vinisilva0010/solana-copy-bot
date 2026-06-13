@@ -116,10 +116,12 @@ async fn send_via_standard_rpc(
         ..Default::default()
     };
 
-    let mut current_status = ExecutionStatus::Failed;
+    let mut current_status = ExecutionStatus::Failed; 
     let mut error_msg = None;
 
-    let _ = rpc_client.send_transaction_with_config(&tx, send_config).await;
+    if let Err(e) = rpc_client.send_transaction_with_config(&tx, send_config).await {
+        tracing::warn!("Falha no broadcast da transação: {}. Tentando re-broadcast...", e);
+    }
 
     loop {
         let current_height = rpc_client.get_block_height_with_commitment(CommitmentConfig::confirmed()).await?;
@@ -144,7 +146,9 @@ async fn send_via_standard_rpc(
             }
         }
 
-        let _ = rpc_client.send_transaction_with_config(&tx, send_config).await;
+        if let Err(e) = rpc_client.send_transaction_with_config(&tx, send_config).await {
+        tracing::warn!("Erro inicial no broadcast: {}", e);
+       }
         tokio::time::sleep(Duration::from_millis(400)).await;
     }
 

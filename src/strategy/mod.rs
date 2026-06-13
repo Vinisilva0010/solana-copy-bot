@@ -3,6 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn evaluate_action(trade: &EnrichedTrade, config: &TradingConfig) -> Option<PaperTrade> {
     if !config.target_wallets.contains(&trade.wallet) {
+        tracing::debug!("Evento ignorado: wallet {} não está na whitelist.", trade.wallet);
         return None;
     }
 

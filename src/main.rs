@@ -106,26 +106,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let mode_string = format!("{:?}", exec_result.mode).to_uppercase();
                         
                         let record = models::TradeRecord {
-                            execution_mode: mode_string.clone(),
-                            original_tx: paper_trade.original_tx.clone(),
-                            bot_tx: exec_result.signature.clone(),
-                            mint: paper_trade.mint.clone(),
-                            amount_sol: paper_trade.amount_sol_db,
-                            slot: Some(paper_trade.slot),
-                            price: None,
-                            mc_origin: None,
-                            mc_bot: None,
-                            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-                        };
+                        original_tx: paper_trade.original_tx.clone(),
+                        original_mint: paper_trade.mint.clone(),
+                        original_amount_sol: paper_trade.amount_sol_db,
+                        original_slot: paper_trade.slot,
+                        
+                        bot_side: format!("{:?}", paper_trade.side),
+                        execution_mode: mode_string.clone(),
+                        
+                        bot_tx: Some(exec_result.signature.clone()),
+                        bot_status: format!("{:?}", exec_result.status),
+                        units_consumed: exec_result.units_consumed,
+                        
+                        timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                    };
 
-                        let _ = tx_telemetry.send(record).await;
+                        if let Err(e) = tx_telemetry.send(record).await {
+                            tracing::error!("Falha crítica ao persistir trade na fila de telemetria: {}", e);
+                        }
 
                         let alert_msg = format!(
                             "[ ALERTA DE EXECUÇÃO : {} ]\n\nOperação: {}\nStatus: {:?}\nContrato: {}\nAssinatura: {}\nErro: {}",
                             mode_string, side_str, exec_result.status, paper_trade.mint, exec_result.signature,
                             exec_result.error_msg.unwrap_or_else(|| "Nenhum".to_string())
                         );
-                        let _ = tx_alerts.send(alert_msg).await;
+                        if let Err(e) = tx_alerts.send(alert_msg).await {
+                            tracing::error!("Falha crítica ao disparar alerta de Telegram: {}", e);
+                        }
                     }
                     Err(e) => tracing::error!("Falha crítica no fluxo de execução: {}", e),
                 }
