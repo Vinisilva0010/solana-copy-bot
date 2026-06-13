@@ -86,3 +86,24 @@ pub struct TradeRecord {
     pub mc_bot: f64,
     pub timestamp: u64,
 }
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExecutionStatus {
+    Success,
+    Failed,
+    Expired,
+    SimulatedSuccess,
+    SimulatedFailed,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExecutionResult {
+    pub mode: String,
+    pub status: ExecutionStatus,
+    pub signature: String,
+    pub units_consumed: u64,
+    pub slot: u64,
+    pub logs: Vec<String>,
+    pub error_msg: Option<String>,
+}
