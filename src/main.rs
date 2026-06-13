@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start_time = Instant::now();
 
     let app_config = utils::load_config().expect("Falha ao carregar configuração.");
-    info!("Executando bot. Modo: {}", app_config.execution_mode);
+    info!("Executando bot. Modo: {:?}", app_config.execution_mode);
 
     let (tx_telemetry, rx_telemetry) = mpsc::channel::<models::TradeRecord>(5000);
     telemetry::start_telemetry_worker("storage/db/telemetry.db".to_string(), rx_telemetry).await;
@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tele_cfg.chat_id,
                 "storage/db/telemetry.db".to_string(),
                 start_time,
-                app_config.execution_mode.clone(),
+                format!("{:?}", app_config.execution_mode).to_uppercase(),
                 rx_alerts
             ).await;
         }
@@ -62,80 +62,67 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(event) = rx_classifier.recv().await {
         if event.has_error { continue; }
 
-        let mut action = classifier::classify_pump_event(&event);
+        let intent = classifier::classify_pump_event(&event);
 
-        match action {
-            models::Action::Buy { ref mut mint, ref mut wallet, ref mut amount_sol, ref tx_origin, .. } => {
-                match extractor::fetch_trade_details(&http_client, &app_config.rpc_url_http, tx_origin).await {
-                    Ok((real_wallet, real_mint, real_amount)) => {
-                        *wallet = real_wallet;
-                        *mint = real_mint;
-                        *amount_sol = real_amount;
-                    }
-                    Err(e) => {
-                        tracing::debug!("RPC Helius - Falha na extração: {}", e);
-                        continue;
-                    }
-                }
-            }
-            models::Action::Sell { ref mut mint, ref mut wallet, ref mut amount_tokens, ref tx_origin, .. } => {
-                match extractor::fetch_trade_details(&http_client, &app_config.rpc_url_http, tx_origin).await {
-                    Ok((real_wallet, real_mint, real_amount)) => {
-                        *wallet = real_wallet;
-                        *mint = real_mint;
-                        *amount_tokens = real_amount;
-                    }
+        let enriched = match intent {
+            models::RawIntent::Buy { signature } => {
+                match extractor::fetch_trade_details(&http_client, &app_config.rpc_url_http, &signature).await {
+                    Ok((wallet, mint, amount)) => Some(models::EnrichedTrade {
+                        side: models::TradeSide::Buy, signature, mint, wallet, amount
+                    }),
                     Err(_) => continue,
                 }
             }
-            _ => { continue; }
-        }
+            models::RawIntent::Sell { signature } => {
+                match extractor::fetch_trade_details(&http_client, &app_config.rpc_url_http, &signature).await {
+                    Ok((wallet, mint, amount)) => Some(models::EnrichedTrade {
+                        side: models::TradeSide::Sell, signature, mint, wallet, amount
+                    }),
+                    Err(_) => continue,
+                }
+            }
+            models::RawIntent::Irrelevant => None,
+        };
 
-        if let Some(paper_trade) = strategy::evaluate_action(&action, &app_config.trading) {
-            if paper_trade.side.as_str() == "BUY" {
-                tracing::info!("[ESTRATÉGIA APROVADA] Transferindo controle para o Executor...");
-                
-                match executor::execute_trade(
-                    &http_client, 
-                    &rpc_client, 
-                    &paper_trade, 
-                    &app_config.trading, 
-                    &bot_keypair, 
-                    &app_config.execution_mode
-                ).await {
-                    Ok(exec_result) => {
-                        let record = models::TradeRecord {
-                            execution_mode: exec_result.mode.clone(),
-                            original_tx: paper_trade.original_tx.clone(),
-                            bot_tx: exec_result.signature.clone(),
-                            mint: paper_trade.mint.clone(),
-                            amount_sol: paper_trade.execution_amount_sol,
-                            slot: exec_result.slot,
-                            price: None,
-                            mc_origin: None,
-                            mc_bot: None,
-                            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-                        };
+        if let Some(trade_data) = enriched {
+            if let Some(paper_trade) = strategy::evaluate_action(&trade_data, &app_config.trading) {
+                if paper_trade.side == models::TradeSide::Buy {
+                    tracing::info!("[ESTRATÉGIA APROVADA] Transferindo controle para o Executor...");
+                    
+                    match executor::execute_trade(
+                        &http_client, 
+                        &rpc_client, 
+                        &paper_trade, 
+                        &app_config.trading, 
+                        &bot_keypair, 
+                        &app_config.execution_mode
+                    ).await {
+                        Ok(exec_result) => {
+                            let mode_string = format!("{:?}", exec_result.mode).to_uppercase();
+                            
+                            let record = models::TradeRecord {
+                                execution_mode: mode_string.clone(),
+                                original_tx: paper_trade.original_tx.clone(),
+                                bot_tx: exec_result.signature.clone(),
+                                mint: paper_trade.mint.clone(),
+                                amount_sol: paper_trade.execution_amount_sol,
+                                slot: exec_result.slot,
+                                price: None,
+                                mc_origin: None,
+                                mc_bot: None,
+                                timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                            };
 
-                        let _ = tx_telemetry.send(record).await;
+                            let _ = tx_telemetry.send(record).await;
 
-                        let alert_msg = format!(
-                            "[ ALERTA DE EXECUÇÃO : {} ]\n\n\
-                            Status: {:?}\n\
-                            Contrato Alvo: {}\n\
-                            Assinatura: {}\n\
-                            Erro (se houver): {}",
-                            exec_result.mode, 
-                            exec_result.status, 
-                            paper_trade.mint, 
-                            exec_result.signature,
-                            exec_result.error_msg.unwrap_or_else(|| "Nenhum".to_string())
-                        );
-                        
-                        let _ = tx_alerts.send(alert_msg).await;
-                    }
-                    Err(e) => {
-                        tracing::error!("Falha crítica no fluxo de execução: {}", e);
+                            let alert_msg = format!(
+                                "[ ALERTA DE EXECUÇÃO : {} ]\n\nStatus: {:?}\nContrato Alvo: {}\nAssinatura: {}\nErro: {}",
+                                mode_string, exec_result.status, paper_trade.mint, exec_result.signature,
+                                exec_result.error_msg.unwrap_or_else(|| "Nenhum".to_string())
+                            );
+                            let _ = tx_alerts.send(alert_msg).await;
+                        }
+                        Err(e) => tracing::error!("Falha crítica no fluxo de execução: {}", e),
                     }
                 }
             }

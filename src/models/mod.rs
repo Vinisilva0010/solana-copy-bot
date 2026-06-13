@@ -23,11 +23,20 @@ pub struct TelegramConfig {
 pub struct AppConfig {
     pub rpc_url_http: String,
     pub rpc_url_ws: String,
-    pub execution_mode: String,
+    pub execution_mode: ExecutionMode,
     pub wallet_path: String,
     pub telegram: Option<TelegramConfig>,
     pub network: NetworkConfig,
     pub trading: TradingConfig,
+}
+
+
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub enum ExecutionMode {
+    Paper,
+    Simulated,
+    Live,
 }
 
 #[derive(Debug, Clone)]
@@ -37,38 +46,35 @@ pub struct RawTransactionEvent {
     pub has_error: bool,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum TradeSide {
+    Buy,
+    Sell,
+}
+
+// O que o classificador detecta na velocidade da luz
 #[derive(Debug, Clone)]
-pub enum Action {
-    Buy {
-        mint: String,
-        amount_sol: f64,
-        tx_origin: String,
-        wallet: String,
-    },
-    Sell {
-        mint: String,
-        amount_tokens: f64,
-        tx_origin: String,
-        wallet: String,
-    },
-    PartialSell {
-        percentage: f64,
-        tx_origin: String,
-        wallet: String,
-    },
-    Transfer {
-        direction: String,
-        amount: f64,
-        tx_origin: String,
-    },
+pub enum RawIntent {
+    Buy { signature: String },
+    Sell { signature: String },
     Irrelevant,
+}
+
+// O que o extrator confirma após ler a blockchain
+#[derive(Debug, Clone)]
+pub struct EnrichedTrade {
+    pub side: TradeSide,
+    pub signature: String,
+    pub mint: String,
+    pub wallet: String,
+    pub amount: f64,
 }
 
 #[derive(Debug, Clone)]
 pub struct PaperTrade {
     pub original_tx: String,
     pub mint: String,
-    pub side: String,
+    pub side: TradeSide, // Agora é protegido pelo compilador
     pub execution_amount_sol: f64,
     pub timestamp: u64,
 }
@@ -98,7 +104,7 @@ pub enum ExecutionStatus {
 
 #[derive(Debug, Clone)]
 pub struct ExecutionResult {
-    pub mode: String,
+    pub mode: ExecutionMode,
     pub status: ExecutionStatus,
     pub signature: String,
     pub units_consumed: u64,

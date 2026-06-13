@@ -1,10 +1,10 @@
-use crate::models::{ExecutionResult, ExecutionStatus, PaperTrade, TradingConfig};
+use crate::models::{ExecutionResult, ExecutionStatus, PaperTrade, TradingConfig, ExecutionMode};
 use reqwest::Client;
 use serde_json::json;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_client::rpc_config::{RpcSendTransactionConfig, RpcSimulateTransactionConfig};
 use solana_sdk::commitment_config::CommitmentConfig;
-use solana_sdk::signature::{Keypair, Signature};
+use solana_sdk::signature::Keypair;
 use solana_sdk::signer::Signer;
 use solana_sdk::transaction::VersionedTransaction;
 use std::time::Duration;
@@ -15,7 +15,7 @@ pub async fn execute_trade(
     paper_trade: &PaperTrade,
     trading_config: &TradingConfig,
     bot_keypair: &Keypair,
-    execution_mode: &str,
+    execution_mode: &ExecutionMode,
 ) -> Result<ExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
     
     let payload = json!({
@@ -46,7 +46,7 @@ pub async fn execute_trade(
     tx.signatures[0] = signature;
     let sig_string = signature.to_string();
 
-    if execution_mode == "LIVE" {
+    if *execution_mode == ExecutionMode::Live {
         let send_config = RpcSendTransactionConfig {
             skip_preflight: true,
             max_retries: Some(0),
@@ -86,7 +86,7 @@ pub async fn execute_trade(
         }
 
         Ok(ExecutionResult {
-            mode: execution_mode.to_string(),
+            mode: execution_mode.clone(),
             status: current_status,
             signature: sig_string,
             units_consumed: 0,
@@ -112,7 +112,7 @@ pub async fn execute_trade(
         };
 
         Ok(ExecutionResult {
-            mode: execution_mode.to_string(),
+            mode: execution_mode.clone(),
             status,
             signature: sig_string,
             units_consumed: val.units_consumed.unwrap_or(0),

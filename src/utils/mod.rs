@@ -21,10 +21,17 @@ pub fn load_config() -> Result<AppConfig, Box<dyn std::error::Error>> {
         });
 
     // Montagem determinística: segredos exigem leitura direta do SO/Ambiente
+    let mode_str = env::var("EXECUTION_MODE").unwrap_or_else(|_| "PAPER".to_string());
+    let exec_mode = match mode_str.to_uppercase().as_str() {
+        "LIVE" => crate::models::ExecutionMode::Live,
+        "SIMULATED" => crate::models::ExecutionMode::Simulated,
+        _ => crate::models::ExecutionMode::Paper,
+    };
+
     let mut app_config = AppConfig {
         rpc_url_http: env::var("RPC_URL_HTTP").expect("FALTA VAR CRÍTICA: RPC_URL_HTTP no .env"),
         rpc_url_ws: env::var("RPC_URL_WS").expect("FALTA VAR CRÍTICA: RPC_URL_WS no .env"),
-        execution_mode: env::var("EXECUTION_MODE").unwrap_or_else(|_| "PAPER".to_string()),
+        execution_mode: exec_mode,
         wallet_path: env::var("WALLET_PATH").unwrap_or_else(|_| "bot_wallet.json".to_string()),
         telegram: None,
         network,
