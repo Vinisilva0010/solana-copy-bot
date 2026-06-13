@@ -80,13 +80,12 @@ pub struct TradeRecord {
     pub bot_tx: String,
     pub mint: String,
     pub amount_sol: f64,
-    pub slot: u64,
-    pub price: f64,
-    pub mc_origin: f64,
-    pub mc_bot: f64,
+    pub slot: Option<u64>,
+    pub price: Option<f64>,
+    pub mc_origin: Option<f64>,
+    pub mc_bot: Option<f64>,
     pub timestamp: u64,
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExecutionStatus {
@@ -103,7 +102,7 @@ pub struct ExecutionResult {
     pub status: ExecutionStatus,
     pub signature: String,
     pub units_consumed: u64,
-    pub slot: u64,
+    pub slot: Option<u64>,
     pub logs: Vec<String>,
     pub error_msg: Option<String>,
 }

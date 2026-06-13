@@ -7,7 +7,6 @@ use tracing::{error, info};
 pub async fn start_telemetry_worker(db_path: String, mut rx: mpsc::Receiver<TradeRecord>) {
     let init_path = db_path.clone();
     
-    // Inicialização do banco de dados transferida para thread de I/O
     tokio::task::spawn_blocking(move || {
         if let Some(parent) = std::path::Path::new(&init_path).parent() {
             let _ = fs::create_dir_all(parent);
@@ -22,10 +21,10 @@ pub async fn start_telemetry_worker(db_path: String, mut rx: mpsc::Receiver<Trad
                         bot_tx TEXT NOT NULL,
                         mint TEXT NOT NULL,
                         amount_sol REAL NOT NULL,
-                        slot INTEGER NOT NULL,
-                        price REAL NOT NULL,
-                        mc_origin REAL NOT NULL,
-                        mc_bot REAL NOT NULL,
+                        slot INTEGER,
+                        price REAL,
+                        mc_origin REAL,
+                        mc_bot REAL,
                         timestamp INTEGER NOT NULL
                     )",
                     [],
@@ -38,7 +37,6 @@ pub async fn start_telemetry_worker(db_path: String, mut rx: mpsc::Receiver<Trad
     .await
     .unwrap_or_else(|e| error!("Falha grave na task de inicialização do SQLite: {}", e));
 
-    // Escuta assíncrona, mas execução de escrita delegada
     tokio::spawn(async move {
         while let Some(record) = rx.recv().await {
             let path = db_path.clone();

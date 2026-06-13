@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bot_keypair = solana_sdk::signature::read_keypair_file(&app_config.wallet_path)
         .unwrap_or_else(|_| panic!("FALHA CRÍTICA: Arquivo de wallet não encontrado em {}", app_config.wallet_path));
     let bot_pubkey = bot_keypair.pubkey().to_string();
-    tracing::info!("Identidade Persistente Carregada. Pubkey activa: {}", bot_pubkey);
+    tracing::info!("Identidade Persistente Carregada. Pubkey ativa: {}", bot_pubkey);
 
     let (tx_ingestion, mut rx_classifier) = mpsc::channel::<models::RawTransactionEvent>(10000);
 
@@ -111,9 +111,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             mint: paper_trade.mint.clone(),
                             amount_sol: paper_trade.execution_amount_sol,
                             slot: exec_result.slot,
-                            price: 0.0,
-                            mc_origin: 0.0,
-                            mc_bot: 0.0,
+                            price: None,
+                            mc_origin: None,
+                            mc_bot: None,
                             timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
                         };
 

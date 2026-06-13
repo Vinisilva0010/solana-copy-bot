@@ -18,7 +18,6 @@ pub async fn execute_trade(
     execution_mode: &str,
 ) -> Result<ExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
     
-    // 1. Construção do Payload via PumpPortal
     let payload = json!({
         "publicKey": bot_keypair.pubkey().to_string(),
         "action": "buy",
@@ -39,21 +38,18 @@ pub async fn execute_trade(
     let mut tx: VersionedTransaction = bincode::deserialize(&tx_bytes)
         .map_err(|e| format!("Falha de desserialização da transação: {}", e))?;
 
-    // 2. Extração de Blockhash Fresco e Janela de Expiração
     let (recent_blockhash, last_valid_block_height) = rpc_client
         .get_latest_blockhash_with_commitment(CommitmentConfig::confirmed())
         .await?;
 
-    // 3. Assinatura Definitiva da Transação
     let signature = bot_keypair.sign_message(&tx.message.serialize());
     tx.signatures[0] = signature;
     let sig_string = signature.to_string();
 
-    // 4. Roteamento de Execução
     if execution_mode == "LIVE" {
         let send_config = RpcSendTransactionConfig {
             skip_preflight: true,
-            max_retries: Some(0), // O Rebroadcast será manual no loop de baixa latência
+            max_retries: Some(0),
             ..Default::default()
         };
 
@@ -66,7 +62,7 @@ pub async fn execute_trade(
             let current_height = rpc_client.get_block_height_with_commitment(CommitmentConfig::confirmed()).await?;
             if current_height > last_valid_block_height {
                 current_status = ExecutionStatus::Expired;
-                error_msg = Some("Blockhash expirado (LastValidBlockHeight ultrapassado)".to_string());
+                error_msg = Some("Blockhash expirado".to_string());
                 break;
             }
 
@@ -78,7 +74,7 @@ pub async fn execute_trade(
                             break;
                         } else {
                             current_status = ExecutionStatus::Failed;
-                            error_msg = Some(format!("Revertido pela rede: {:?}", status.err));
+                            error_msg = Some(format!("Revertido: {:?}", status.err));
                             break;
                         }
                     }
@@ -94,16 +90,15 @@ pub async fn execute_trade(
             status: current_status,
             signature: sig_string,
             units_consumed: 0,
-            slot: 0,
+            slot: None,
             logs: vec![],
             error_msg,
         })
 
     } else {
-        // SIMULATED / PAPER
         let sim_config = RpcSimulateTransactionConfig {
             commitment: Some(CommitmentConfig::confirmed()),
-            replace_recent_blockhash: true, // Força a simulação a usar o blockhash da rede
+            replace_recent_blockhash: true,
             ..Default::default()
         };
 
@@ -116,16 +111,14 @@ pub async fn execute_trade(
             ExecutionStatus::SimulatedFailed
         };
 
-        let err_msg = val.err.map(|e| format!("{:?}", e));
-
         Ok(ExecutionResult {
             mode: execution_mode.to_string(),
             status,
             signature: sig_string,
             units_consumed: val.units_consumed.unwrap_or(0),
-            slot: 0, 
+            slot: None,
             logs: val.logs.unwrap_or_default(),
-            error_msg: err_msg,
+            error_msg: val.err.map(|e| format!("{:?}", e)),
         })
     }
 }
