@@ -116,6 +116,8 @@ async fn send_via_standard_rpc(
         ..Default::default()
     };
 
+    // Inicializamos como Pending para representar que a tentativa começou
+    #[allow(unused_assignments)]
     let mut current_status = ExecutionStatus::Failed; 
     let mut error_msg = None;
 
