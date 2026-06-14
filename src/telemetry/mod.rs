@@ -1,10 +1,16 @@
-use crate::models::TradeRecord;
+use crate::models::{TradeRecord, SystemHealth};
 use rusqlite::{params, Connection};
 use std::fs;
+use std::sync::{Arc, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
-pub async fn start_telemetry_worker(db_path: String, mut rx: mpsc::Receiver<TradeRecord>) {
+pub async fn start_telemetry_worker(
+    db_path: String, 
+    mut rx: mpsc::Receiver<TradeRecord>,
+    health: Arc<RwLock<SystemHealth>>
+) {
     let init_path = db_path.clone();
     
     tokio::task::spawn_blocking(move || {
@@ -13,7 +19,6 @@ pub async fn start_telemetry_worker(db_path: String, mut rx: mpsc::Receiver<Trad
         }
         match Connection::open(&init_path) {
             Ok(conn) => {
-                // Tabela reconstruída com as colunas da fase 1, 2, 3 e 4
                 let _ = conn.execute(
                     "CREATE TABLE IF NOT EXISTS trades (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,6 +46,7 @@ pub async fn start_telemetry_worker(db_path: String, mut rx: mpsc::Receiver<Trad
     tokio::spawn(async move {
         while let Some(record) = rx.recv().await {
             let path = db_path.clone();
+            let health_clone = health.clone();
             
             tokio::task::spawn_blocking(move || {
                 if let Ok(conn) = Connection::open(&path) {
@@ -55,8 +61,13 @@ pub async fn start_telemetry_worker(db_path: String, mut rx: mpsc::Receiver<Trad
                             record.units_consumed, record.timestamp,
                         ],
                     );
+                    
                     if let Err(e) = res {
                         error!("Erro de I/O ao gravar telemetria: {}", e);
+                    } else {
+                        if let Ok(mut h) = health_clone.write() {
+                            h.last_db_write = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                        }
                     }
                 }
             });

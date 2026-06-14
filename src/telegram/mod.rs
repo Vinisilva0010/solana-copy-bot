@@ -1,5 +1,7 @@
+use crate::models::SystemHealth;
 use rusqlite::Connection;
-use std::time::Instant;
+use std::sync::{Arc, RwLock};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use teloxide::{prelude::*, utils::command::BotCommands};
 use tracing::{error, info};
@@ -20,6 +22,7 @@ pub async fn init_telegram_module(
     start_time: Instant,
     execution_mode: String,
     mut rx_alerts: mpsc::Receiver<String>,
+    health: Arc<RwLock<SystemHealth>>
 ) {
     let bot = Bot::new(token.clone());
     info!("Serviço de controle do Telegram inicializado e escutando comandos.");
@@ -27,6 +30,7 @@ pub async fn init_telegram_module(
     let bot_clone = bot.clone();
     let db_path_clone = db_path.clone();
     let exec_mode_clone = execution_mode.clone();
+    let health_telegram = health.clone();
     
     tokio::spawn(async move {
         let handler = Update::filter_message().branch(
@@ -35,6 +39,7 @@ pub async fn init_telegram_module(
                 .endpoint(move |bot: Bot, msg: Message, cmd: Command| {
                     let db_path = db_path_clone.clone();
                     let exec_mode = exec_mode_clone.clone();
+                    let health_state = health_telegram.clone();
                     async move {
                         match cmd {
                             Command::Status => {
@@ -44,16 +49,33 @@ pub async fn init_telegram_module(
                                 let secs = elapsed % 60;
 
                                 let stats = fetch_db_stats(db_path).await.unwrap_or((0, 0.0));
+                                
+                                let current_unix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                                let h = health_state.read().unwrap().clone();
+                                
+                                let ingest_diff = if h.last_ingestion_time > 0 { current_unix.saturating_sub(h.last_ingestion_time) } else { 0 };
+                                let db_diff = if h.last_db_write > 0 { current_unix.saturating_sub(h.last_db_write) } else { 0 };
 
                                 let status_msg = format!(
-                                    "[ ZANVEXIS HFT CORE - STATUS ]\n\n\
-                                    Modo de Execução: {}\n\
+                                    "[ ZANVEXIS HFT CORE - HEALTH ]\n\
+                                    Modo: {}\n\
                                     Uptime: {:02}h {:02}m {:02}s\n\n\
-                                    [ MÉTRICAS DO BANCO DE DADOS ]\n\
-                                    Operações Registradas: {}\n\
-                                    Volume Total Processado: {:.4} SOL\n\
-                                    Integridade do Arquivo SQLite: OK",
-                                    exec_mode, hours, mins, secs, stats.0, stats.1
+                                    [ FILAS & REDE ]\n\
+                                    Tamanho Fila Ingestão: {}\n\
+                                    Último Evento: {}s atrás\n\n\
+                                    [ PERSISTÊNCIA ]\n\
+                                    Escritas Totais: {}\n\
+                                    Volume Processado: {:.4} SOL\n\
+                                    Última Escrita DB: {}s atrás\n\n\
+                                    [ ALERTA CRÍTICO ]\n\
+                                    Último Erro: {}",
+                                    exec_mode, hours, mins, secs, 
+                                    h.queue_ingestion_size,
+                                    ingest_diff,
+                                    stats.0,
+                                    stats.1,
+                                    db_diff,
+                                    h.last_error
                                 );
 
                                 let _ = bot.send_message(msg.chat.id, status_msg).await;
@@ -88,7 +110,7 @@ pub async fn init_telegram_module(
 async fn fetch_db_stats(db_path: String) -> Result<(i64, f64), String> {
     tokio::task::spawn_blocking(move || -> Result<(i64, f64), String> {
         let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
-        let mut stmt = conn.prepare("SELECT COUNT(*), COALESCE(SUM(amount_sol), 0.0) FROM trades")
+        let mut stmt = conn.prepare("SELECT COUNT(*), COALESCE(SUM(original_amount_sol), 0.0) FROM trades")
             .map_err(|e| e.to_string())?;
         
         let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
@@ -108,7 +130,7 @@ async fn fetch_last_trades(db_path: String) -> Result<String, String> {
     tokio::task::spawn_blocking(move || -> Result<String, String> {
         let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare(
-            "SELECT original_tx, amount_sol, execution_mode FROM trades ORDER BY id DESC LIMIT 5"
+            "SELECT original_tx, original_amount_sol, execution_mode FROM trades ORDER BY id DESC LIMIT 5"
         ).map_err(|e| e.to_string())?;
         
         let rows = stmt.query_map([], |row| {

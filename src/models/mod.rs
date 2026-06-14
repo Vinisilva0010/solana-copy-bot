@@ -81,22 +81,18 @@ pub struct PaperTrade {
 
 #[derive(Debug, Clone)]
 pub struct TradeRecord {
-    // Fase 1: Observação (Market Context)
     pub original_tx: String,
     pub original_mint: String,
     pub original_amount_sol: f64,
     pub original_slot: u64,
     
-    // Fase 2: Decisão (Bot Strategy)
     pub bot_side: String,
     pub execution_mode: String,
     
-    // Fase 3: Execução (Network Lifecycle)
     pub bot_tx: Option<String>,
     pub bot_status: String,
     pub units_consumed: u64,
     
-    // Fase 4: Temporal
     pub timestamp: u64,
 }
 
@@ -118,4 +114,23 @@ pub struct ExecutionResult {
     pub slot: Option<u64>,
     pub logs: Vec<String>,
     pub error_msg: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SystemHealth {
+    pub last_ingestion_time: u64,
+    pub last_db_write: u64,
+    pub queue_ingestion_size: usize,
+    pub last_error: String,
+}
+
+impl Default for SystemHealth {
+    fn default() -> Self {
+        Self {
+            last_ingestion_time: 0,
+            last_db_write: 0,
+            queue_ingestion_size: 0,
+            last_error: "Nenhum".to_string(),
+        }
+    }
 }

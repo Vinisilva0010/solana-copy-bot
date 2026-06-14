@@ -1,13 +1,18 @@
-use crate::models::RawTransactionEvent;
+use crate::models::{RawTransactionEvent, SystemHealth};
 use futures_util::StreamExt;
 use solana_client::nonblocking::pubsub_client::PubsubClient;
 use solana_rpc_client_api::config::{RpcTransactionLogsConfig, RpcTransactionLogsFilter};
 use solana_sdk::commitment_config::CommitmentConfig;
-use std::time::Duration;
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-pub async fn start_stream(ws_url: String, tx_channel: mpsc::Sender<RawTransactionEvent>) {
+pub async fn start_stream(
+    ws_url: String, 
+    tx_channel: mpsc::Sender<RawTransactionEvent>, 
+    health: Arc<RwLock<SystemHealth>>
+) {
     tokio::spawn(async move {
         let mut backoff_secs = 1;
         
@@ -37,6 +42,12 @@ pub async fn start_stream(ws_url: String, tx_channel: mpsc::Sender<RawTransactio
                                     has_error: log_info.value.err.is_some(),
                                     slot: log_info.context.slot,
                                 };
+                                
+                                let current_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                                if let Ok(mut h) = health.write() {
+                                    h.last_ingestion_time = current_time;
+                                    h.queue_ingestion_size = tx_channel.max_capacity() - tx_channel.capacity();
+                                }
                                 
                                 if let Err(e) = tx_channel.send(event).await {
                                     tracing::error!("Falha fatal no canal de ingestão (Pipeline bloqueado): {}", e);

@@ -1,6 +1,7 @@
 use reqwest::Client;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::signer::Signer;
+use std::sync::{Arc, RwLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tracing::{info, Level};
@@ -26,8 +27,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_config = utils::load_config().expect("Falha ao carregar configuração.");
     info!("Executando bot. Modo: {:?}", app_config.execution_mode);
 
+    // Criação do Estado Global de Saúde
+    let health = Arc::new(RwLock::new(models::SystemHealth::default()));
+
     let (tx_telemetry, rx_telemetry) = mpsc::channel::<models::TradeRecord>(5000);
-    telemetry::start_telemetry_worker("storage/db/telemetry.db".to_string(), rx_telemetry).await;
+    telemetry::start_telemetry_worker("storage/db/telemetry.db".to_string(), rx_telemetry, health.clone()).await;
 
     let (tx_alerts, rx_alerts) = mpsc::channel::<String>(1000);
 
@@ -39,7 +43,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "storage/db/telemetry.db".to_string(),
                 start_time,
                 format!("{:?}", app_config.execution_mode).to_uppercase(),
-                rx_alerts
+                rx_alerts,
+                health.clone()
             ).await;
         }
     }
@@ -57,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (tx_ingestion, mut rx_classifier) = mpsc::channel::<models::RawTransactionEvent>(10000);
 
-    ingestion::start_stream(app_config.rpc_url_ws.clone(), tx_ingestion).await;
+    ingestion::start_stream(app_config.rpc_url_ws.clone(), tx_ingestion, health.clone()).await;
 
     while let Some(event) = rx_classifier.recv().await {
         if event.has_error { continue; }
@@ -106,23 +111,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let mode_string = format!("{:?}", exec_result.mode).to_uppercase();
                         
                         let record = models::TradeRecord {
-                        original_tx: paper_trade.original_tx.clone(),
-                        original_mint: paper_trade.mint.clone(),
-                        original_amount_sol: paper_trade.amount_sol_db,
-                        original_slot: paper_trade.slot,
-                        
-                        bot_side: format!("{:?}", paper_trade.side),
-                        execution_mode: mode_string.clone(),
-                        
-                        bot_tx: Some(exec_result.signature.clone()),
-                        bot_status: format!("{:?}", exec_result.status),
-                        units_consumed: exec_result.units_consumed,
-                        
-                        timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-                    };
+                            original_tx: paper_trade.original_tx.clone(),
+                            original_mint: paper_trade.mint.clone(),
+                            original_amount_sol: paper_trade.amount_sol_db,
+                            original_slot: paper_trade.slot,
+                            
+                            bot_side: format!("{:?}", paper_trade.side),
+                            execution_mode: mode_string.clone(),
+                            
+                            bot_tx: Some(exec_result.signature.clone()),
+                            bot_status: format!("{:?}", exec_result.status),
+                            units_consumed: exec_result.units_consumed,
+                            
+                            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                        };
 
                         if let Err(e) = tx_telemetry.send(record).await {
                             tracing::error!("Falha crítica ao persistir trade na fila de telemetria: {}", e);
+                            if let Ok(mut h) = health.write() {
+                                h.last_error = format!("Telemetry Queue Error: {}", e);
+                            }
                         }
 
                         let alert_msg = format!(
@@ -130,11 +138,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             mode_string, side_str, exec_result.status, paper_trade.mint, exec_result.signature,
                             exec_result.error_msg.unwrap_or_else(|| "Nenhum".to_string())
                         );
+                        
                         if let Err(e) = tx_alerts.send(alert_msg).await {
                             tracing::error!("Falha crítica ao disparar alerta de Telegram: {}", e);
+                            if let Ok(mut h) = health.write() {
+                                h.last_error = format!("Telegram Queue Error: {}", e);
+                            }
                         }
                     }
-                    Err(e) => tracing::error!("Falha crítica no fluxo de execução: {}", e),
+                    Err(e) => {
+                        tracing::error!("Falha crítica no fluxo de execução: {}", e);
+                        if let Ok(mut h) = health.write() {
+                            h.last_error = format!("Executor Error: {}", e);
+                        }
+                    }
                 }
             }
         }
